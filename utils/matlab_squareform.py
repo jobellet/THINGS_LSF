@@ -52,3 +52,18 @@ def get_rdm(cmat, indexes):
             idx_out += 1
 
     return rdm_sub
+
+
+if __name__ == "__main__":
+    # Example test
+    M = 6
+    A = np.random.rand(M, M)
+    A = 0.5*(A + A.T)
+    np.fill_diagonal(A, 0)
+    cmat_test = []
+    for col in range(M - 1):
+        for row in range(col + 1, M):
+            cmat_test.append(A[row, col])
+    cmat_test = np.array(cmat_test)
+    full_mat = squareformq(cmat_test)
+    print("Full reconstruction correct?", np.allclose(full_mat, A))
