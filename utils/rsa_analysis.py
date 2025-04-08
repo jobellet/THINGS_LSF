@@ -3,13 +3,11 @@
 rsa_analysis.py
 
 This module provides functions for performing Representational Similarity Analysis (RSA)
-using JAX. It includes:
-
-  - JAX-accelerated functions for computing Spearman rank correlations.
-  - Pairwise distance functions (for Euclidean and correlation distances) on fixed batches.
+using JAX. It includes JAX-accelerated functions for computing Spearman rank correlations
+and pairwise distance functions (for Euclidean and correlation distances) that work on a
+user-chosen batch size.
 """
 
-import os
 import numpy as np
 from scipy.stats import rankdata
 import jax
@@ -17,12 +15,30 @@ import jax.numpy as jnp
 from jax import jit
 from tqdm import tqdm
 
-# --- Constants and precomputed indices for fixed batch size ---
-BATCH_SIZE = 20
-I_UPPER, J_UPPER = np.triu_indices(BATCH_SIZE, k=1)
-I_UPPER = jnp.array(I_UPPER)
-J_UPPER = jnp.array(J_UPPER)
+# --- Default parameters ---
+BATCH_SIZE = 20  # default batch size
+
+def _compute_indices(batch_size):
+    # Compute indices for the upper-triangular part of a square matrix
+    I_UPPER, J_UPPER = np.triu_indices(batch_size, k=1)
+    return jnp.array(I_UPPER), jnp.array(J_UPPER)
+
+I_UPPER, J_UPPER = _compute_indices(BATCH_SIZE)
 nRDMfeatures = len(I_UPPER)
+
+def set_batch_size(new_size: int):
+    """
+    Set a new batch size and update the precomputed indices.
+    
+    Parameters
+    ----------
+    new_size : int
+        The new batch size to use.
+    """
+    global BATCH_SIZE, I_UPPER, J_UPPER, nRDMfeatures
+    BATCH_SIZE = new_size
+    I_UPPER, J_UPPER = _compute_indices(new_size)
+    nRDMfeatures = len(I_UPPER)
 
 ####################################
 # JAX functions for RSA
@@ -36,7 +52,7 @@ def compute_spearman_rankcorr(x_ranked, y_ranked):
     x_mean = jnp.mean(x_ranked)
     y_mean = jnp.mean(y_ranked)
     num = jnp.sum((x_ranked - x_mean) * (y_ranked - y_mean))
-    den = jnp.sqrt(jnp.sum((x_ranked - x_mean)**2) * jnp.sum((y_ranked - y_mean)**2))
+    den = jnp.sqrt(jnp.sum((x_ranked - x_mean) ** 2) * jnp.sum((y_ranked - y_mean) ** 2))
     return num / den
 
 @jit
@@ -45,7 +61,7 @@ def compute_rsa_jax(rdm1_ranked, rdm2_ranked):
     return compute_spearman_rankcorr(rdm1_ranked, rdm2_ranked)
 
 ####################################
-# Pairwise distance functions (fixed batch size)
+# Pairwise distance functions (using current batch size)
 ####################################
 @jit
 def pairwise_euclidean_distance_fixed(X):
@@ -61,7 +77,7 @@ def pairwise_euclidean_distance_fixed(X):
     distances : array of shape [nRDMfeatures,]
     """
     diff = X[:, None, :] - X[None, :, :]
-    sq = jnp.sum(diff**2, axis=-1)
+    sq = jnp.sum(diff ** 2, axis=-1)
     return sq[I_UPPER, J_UPPER]
 
 @jit
@@ -79,11 +95,9 @@ def pairwise_correlation_distance_fixed(X):
     """
     X_mean = jnp.mean(X, axis=1, keepdims=True)
     X_centered = X - X_mean
-    norms = jnp.sqrt(jnp.sum(X_centered**2, axis=1, keepdims=True))
+    norms = jnp.sqrt(jnp.sum(X_centered ** 2, axis=1, keepdims=True))
     eps = 1e-8
     X_normalized = X_centered / (norms + eps)
     corr_matrix = X_normalized @ X_normalized.T
     dist_matrix = 1 - corr_matrix
     return dist_matrix[I_UPPER, J_UPPER]
-
-
