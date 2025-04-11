@@ -79,7 +79,7 @@ def compute_rsa_jax(rdm1_ranked: jnp.ndarray, rdm2_ranked: jnp.ndarray) -> jnp.n
     """
     return compute_spearman_rankcorr(rdm1_ranked, rdm2_ranked)
 
-@jit
+@jit(static_argnums=(1,))
 def pairwise_euclidean_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     """
     Compute the upper-triangular Euclidean distances (flattened) for a batch of data.
@@ -89,7 +89,7 @@ def pairwise_euclidean_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.nd
     X : jnp.ndarray, shape [batch_size, feature_dim]
         Input data from which to compute distances.
     batch_size : int
-        The number of items in the batch (rows in X).
+        The number of items in the batch (rows in X), treated as a static argument.
 
     Returns
     -------
@@ -101,7 +101,7 @@ def pairwise_euclidean_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.nd
     sq = jnp.sum(diff ** 2, axis=-1)
     return sq[i_upper, j_upper]
 
-@jit
+@jit(static_argnums=(1,))
 def pairwise_correlation_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     """
     Compute the upper-triangular correlation distances (flattened) for a batch of data.
@@ -111,7 +111,7 @@ def pairwise_correlation_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.
     X : jnp.ndarray, shape [batch_size, feature_dim]
         Input data from which to compute correlation distances.
     batch_size : int
-        The number of items in the batch (rows in X).
+        The number of items in the batch (rows in X), treated as a static argument.
 
     Returns
     -------
