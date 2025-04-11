@@ -14,6 +14,26 @@ import jax.numpy as jnp
 from jax import jit
 from functools import lru_cache
 from tqdm import tqdm
+from functools import partial
+
+@partial(jit, static_argnums=(1,))
+def pairwise_euclidean_distance_fixed(X, batch_size):
+    i_upper, j_upper = _compute_indices(batch_size)
+    diff = X[:, None, :] - X[None, :, :]
+    sq = jnp.sum(diff ** 2, axis=-1)
+    return sq[i_upper, j_upper]
+
+@partial(jit, static_argnums=(1,))
+def pairwise_correlation_distance_fixed(X, batch_size):
+    i_upper, j_upper = _compute_indices(batch_size)
+    X_mean = jnp.mean(X, axis=1, keepdims=True)
+    X_centered = X - X_mean
+    norms = jnp.sqrt(jnp.sum(X_centered ** 2, axis=1, keepdims=True))
+    eps = 1e-8
+    X_normalized = X_centered / (norms + eps)
+    corr_matrix = X_normalized @ X_normalized.T
+    dist_matrix = 1 - corr_matrix
+    return dist_matrix[i_upper, j_upper]
 
 @lru_cache(maxsize=None)
 def _compute_indices(batch_size: int):
@@ -78,53 +98,3 @@ def compute_rsa_jax(rdm1_ranked: jnp.ndarray, rdm2_ranked: jnp.ndarray) -> jnp.n
         Spearman correlation between the two RDMs.
     """
     return compute_spearman_rankcorr(rdm1_ranked, rdm2_ranked)
-
-@jit(static_argnums=(1,))
-def pairwise_euclidean_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.ndarray:
-    """
-    Compute the upper-triangular Euclidean distances (flattened) for a batch of data.
-
-    Parameters
-    ----------
-    X : jnp.ndarray, shape [batch_size, feature_dim]
-        Input data from which to compute distances.
-    batch_size : int
-        The number of items in the batch (rows in X), treated as a static argument.
-
-    Returns
-    -------
-    distances : jnp.ndarray, shape [nRDMfeatures,]
-        Flattened upper-triangular distances.
-    """
-    i_upper, j_upper = _compute_indices(batch_size)
-    diff = X[:, None, :] - X[None, :, :]
-    sq = jnp.sum(diff ** 2, axis=-1)
-    return sq[i_upper, j_upper]
-
-@jit(static_argnums=(1,))
-def pairwise_correlation_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.ndarray:
-    """
-    Compute the upper-triangular correlation distances (flattened) for a batch of data.
-
-    Parameters
-    ----------
-    X : jnp.ndarray, shape [batch_size, feature_dim]
-        Input data from which to compute correlation distances.
-    batch_size : int
-        The number of items in the batch (rows in X), treated as a static argument.
-
-    Returns
-    -------
-    distances : jnp.ndarray, shape [nRDMfeatures,]
-        Flattened upper-triangular correlation distances, defined as 1 minus
-        the correlation coefficients.
-    """
-    i_upper, j_upper = _compute_indices(batch_size)
-    X_mean = jnp.mean(X, axis=1, keepdims=True)
-    X_centered = X - X_mean
-    norms = jnp.sqrt(jnp.sum(X_centered ** 2, axis=1, keepdims=True))
-    eps = 1e-8
-    X_normalized = X_centered / (norms + eps)
-    corr_matrix = X_normalized @ X_normalized.T
-    dist_matrix = 1 - corr_matrix
-    return dist_matrix[i_upper, j_upper]
