@@ -1,4 +1,3 @@
-# utils/rsa_analysis.py
 """
 rsa_analysis.py
 
@@ -13,86 +12,114 @@ from scipy.stats import rankdata
 import jax
 import jax.numpy as jnp
 from jax import jit
+from functools import lru_cache
 from tqdm import tqdm
 
-# --- Default parameters ---
-BATCH_SIZE = 20  # default batch size
+@lru_cache(maxsize=None)
+def _compute_indices(batch_size: int):
+    """
+    Compute the upper-triangular indices for a square matrix of size `batch_size`
+    and cache the result for each unique batch size.
 
-def _compute_indices(batch_size):
-    # Compute indices for the upper-triangular part of a square matrix
+    Parameters
+    ----------
+    batch_size : int
+        Number of items in the batch (rows/columns).
+
+    Returns
+    -------
+    i_upper : jnp.array
+        Row indices of the upper triangular (excluding diagonal).
+    j_upper : jnp.array
+        Column indices of the upper triangular (excluding diagonal).
+    """
     I_UPPER, J_UPPER = np.triu_indices(batch_size, k=1)
     return jnp.array(I_UPPER), jnp.array(J_UPPER)
 
-I_UPPER, J_UPPER = _compute_indices(BATCH_SIZE)
-nRDMfeatures = len(I_UPPER)
-
-def set_batch_size(new_size: int):
-    """
-    Set a new batch size and update the precomputed indices.
-    
-    Parameters
-    ----------
-    new_size : int
-        The new batch size to use.
-    """
-    global BATCH_SIZE, I_UPPER, J_UPPER, nRDMfeatures
-    BATCH_SIZE = new_size
-    I_UPPER, J_UPPER = _compute_indices(new_size)
-    nRDMfeatures = len(I_UPPER)
-
-####################################
-# JAX functions for RSA
-####################################
 @jit
-def compute_spearman_rankcorr(x_ranked, y_ranked):
+def compute_spearman_rankcorr(x_ranked: jnp.ndarray, y_ranked: jnp.ndarray) -> jnp.ndarray:
     """
     Compute Spearman's rank correlation between two rank-transformed vectors
     using Pearson's formula.
+
+    Parameters
+    ----------
+    x_ranked : jnp.ndarray
+        Rank-transformed vector (e.g., from rankdata).
+    y_ranked : jnp.ndarray
+        Rank-transformed vector (e.g., from rankdata).
+
+    Returns
+    -------
+    corr : jnp.ndarray
+        Scalar representing Spearman correlation between x_ranked and y_ranked.
     """
     x_mean = jnp.mean(x_ranked)
     y_mean = jnp.mean(y_ranked)
     num = jnp.sum((x_ranked - x_mean) * (y_ranked - y_mean))
     den = jnp.sqrt(jnp.sum((x_ranked - x_mean) ** 2) * jnp.sum((y_ranked - y_mean) ** 2))
-    return num / den
+    return num / (den + 1e-12)  # add a small epsilon to avoid division by zero
 
 @jit
-def compute_rsa_jax(rdm1_ranked, rdm2_ranked):
-    """Wrapper to compute RSA (Spearman correlation) on rank-transformed RDMs."""
+def compute_rsa_jax(rdm1_ranked: jnp.ndarray, rdm2_ranked: jnp.ndarray) -> jnp.ndarray:
+    """
+    Wrapper to compute RSA (Spearman correlation) on rank-transformed RDMs.
+
+    Parameters
+    ----------
+    rdm1_ranked : jnp.ndarray
+        Flattened rank-transformed RDM.
+    rdm2_ranked : jnp.ndarray
+        Flattened rank-transformed RDM.
+
+    Returns
+    -------
+    corr : jnp.ndarray
+        Spearman correlation between the two RDMs.
+    """
     return compute_spearman_rankcorr(rdm1_ranked, rdm2_ranked)
 
-####################################
-# Pairwise distance functions (using current batch size)
-####################################
 @jit
-def pairwise_euclidean_distance_fixed(X):
+def pairwise_euclidean_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     """
     Compute the upper-triangular Euclidean distances (flattened) for a batch of data.
-    
+
     Parameters
     ----------
-    X : array of shape [BATCH_SIZE, feature_dim]
-    
+    X : jnp.ndarray, shape [batch_size, feature_dim]
+        Input data from which to compute distances.
+    batch_size : int
+        The number of items in the batch (rows in X).
+
     Returns
     -------
-    distances : array of shape [nRDMfeatures,]
+    distances : jnp.ndarray, shape [nRDMfeatures,]
+        Flattened upper-triangular distances.
     """
+    i_upper, j_upper = _compute_indices(batch_size)
     diff = X[:, None, :] - X[None, :, :]
     sq = jnp.sum(diff ** 2, axis=-1)
-    return sq[I_UPPER, J_UPPER]
+    return sq[i_upper, j_upper]
 
 @jit
-def pairwise_correlation_distance_fixed(X):
+def pairwise_correlation_distance_fixed(X: jnp.ndarray, batch_size: int) -> jnp.ndarray:
     """
     Compute the upper-triangular correlation distances (flattened) for a batch of data.
-    
+
     Parameters
     ----------
-    X : array of shape [BATCH_SIZE, feature_dim]
-    
+    X : jnp.ndarray, shape [batch_size, feature_dim]
+        Input data from which to compute correlation distances.
+    batch_size : int
+        The number of items in the batch (rows in X).
+
     Returns
     -------
-    distances : array of shape [nRDMfeatures,]
+    distances : jnp.ndarray, shape [nRDMfeatures,]
+        Flattened upper-triangular correlation distances, defined as 1 minus
+        the correlation coefficients.
     """
+    i_upper, j_upper = _compute_indices(batch_size)
     X_mean = jnp.mean(X, axis=1, keepdims=True)
     X_centered = X - X_mean
     norms = jnp.sqrt(jnp.sum(X_centered ** 2, axis=1, keepdims=True))
@@ -100,4 +127,4 @@ def pairwise_correlation_distance_fixed(X):
     X_normalized = X_centered / (norms + eps)
     corr_matrix = X_normalized @ X_normalized.T
     dist_matrix = 1 - corr_matrix
-    return dist_matrix[I_UPPER, J_UPPER]
+    return dist_matrix[i_upper, j_upper]
